@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'home_screen.dart';
+import 'auth_gate.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -17,51 +17,29 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
-  Future<void> _login() async {
+    Future<void> _login() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final supabase = Supabase.instance.client;
-
-      final response = await supabase.auth.signInWithPassword(
+      await Supabase.instance.client.auth.signInWithPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
-      final user = response.user;
-      if (user == null) {
-        throw Exception('Giriş başarısız');
-      }
-
-      final profile = await supabase
-          .from('profiles')
-          .select()
-          .eq('id', user.id)
-          .single();
-
       if (!mounted) return;
 
-      Navigator.pushReplacement(
+      Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(
-          builder: (_) => HomeScreen(
-            fullName: profile['full_name'],
-            role: profile['role'],
-          ),
-        ),
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
       );
     } catch (e) {
       if (mounted) {
         setState(() {
           _errorMessage = 'Giriş hatası: $e';
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
           _isLoading = false;
         });
       }
