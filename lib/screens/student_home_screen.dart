@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'auth_gate.dart';
+import 'subjects_screen.dart';
 
 class StudentHomeScreen extends StatelessWidget {
   final String fullName;
@@ -96,7 +97,18 @@ class StudentHomeScreen extends StatelessWidget {
             ElevatedButton.icon(
               onPressed: () => _generateCode(context),
               icon: const Icon(Icons.link),
-              label: const Text('Ebeveyn bağla'),
+              label: const Text('Ebeveyn bağla'), 
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SubjectsScreen()),
+                );
+              },
+              icon: const Icon(Icons.menu_book),
+              label: const Text('Derslerim'),
             ),
           ],
         ),
