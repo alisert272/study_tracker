@@ -1,49 +1,56 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'topics_screen.dart';
 
-class SubjectsScreen extends StatefulWidget {
-  const SubjectsScreen({super.key});
+class TopicsScreen extends StatefulWidget {
+  final String subjectId;
+  final String subjectName;
+
+  const TopicsScreen({
+    super.key,
+    required this.subjectId,
+    required this.subjectName,
+  });
 
   @override
-  State<SubjectsScreen> createState() => _SubjectsScreenState();
+  State<TopicsScreen> createState() => _TopicsScreenState();
 }
 
-class _SubjectsScreenState extends State<SubjectsScreen> {
-  late Future<List<Map<String, dynamic>>> _subjectsFuture;
+class _TopicsScreenState extends State<TopicsScreen> {
+  late Future<List<Map<String, dynamic>>> _topicsFuture;
 
   @override
   void initState() {
     super.initState();
-    _subjectsFuture = _loadSubjects();
+    _topicsFuture = _loadTopics();
   }
 
-  Future<List<Map<String, dynamic>>> _loadSubjects() async {
+  Future<List<Map<String, dynamic>>> _loadTopics() async {
     final data = await Supabase.instance.client
-        .from('subjects')
+        .from('topics')
         .select('id, name')
+        .eq('subject_id', widget.subjectId)
         .order('name');
     return List<Map<String, dynamic>>.from(data);
   }
 
   void _refresh() {
     setState(() {
-      _subjectsFuture = _loadSubjects();
+      _topicsFuture = _loadTopics();
     });
   }
 
-  Future<void> _addSubject() async {
+  Future<void> _addTopic() async {
     final controller = TextEditingController();
 
     final name = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Ders ekle'),
+        title: const Text('Konu ekle'),
         content: TextField(
           controller: controller,
           autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          decoration: const InputDecoration(labelText: 'Ders adı'),
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(labelText: 'Konu adı'),
         ),
         actions: [
           TextButton(
@@ -62,9 +69,8 @@ class _SubjectsScreenState extends State<SubjectsScreen> {
     if (name == null || name.isEmpty) return;
 
     try {
-      final supabase = Supabase.instance.client;
-      await supabase.from('subjects').insert({
-        'student_id': supabase.auth.currentUser!.id,
+      await Supabase.instance.client.from('topics').insert({
+        'subject_id': widget.subjectId,
         'name': name,
       });
       if (!mounted) return;
@@ -72,21 +78,21 @@ class _SubjectsScreenState extends State<SubjectsScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Ders eklenemedi: $e')));
+          .showSnackBar(SnackBar(content: Text('Konu eklenemedi: $e')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Derslerim')),
+      appBar: AppBar(title: Text('${widget.subjectName} - Konular')),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addSubject,
+        onPressed: _addTopic,
         icon: const Icon(Icons.add),
-        label: const Text('Ders ekle'),
+        label: const Text('Konu ekle'),
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _subjectsFuture,
+        future: _topicsFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -95,33 +101,20 @@ class _SubjectsScreenState extends State<SubjectsScreen> {
             return Center(child: Text('Liste yüklenemedi: ${snapshot.error}'));
           }
 
-          final subjects = snapshot.data!;
-          if (subjects.isEmpty) {
+          final topics = snapshot.data!;
+          if (topics.isEmpty) {
             return const Center(
-              child: Text('Henüz ders yok.\n"Ders ekle" ile başla.',
+              child: Text('Henüz konu yok.\n"Konu ekle" ile başla.',
                   textAlign: TextAlign.center),
             );
           }
 
           return ListView.builder(
-            itemCount: subjects.length,
-                        itemBuilder: (context, index) {
-              final subject = subjects[index];
+            itemCount: topics.length,
+            itemBuilder: (context, index) {
               return ListTile(
-                leading: const Icon(Icons.menu_book),
-                title: Text(subject['name'] as String),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => TopicsScreen(
-                        subjectId: subject['id'] as String,
-                        subjectName: subject['name'] as String,
-                      ),
-                    ),
-                  );
-                },
+                leading: const Icon(Icons.topic),
+                title: Text(topics[index]['name'] as String),
               );
             },
           );
