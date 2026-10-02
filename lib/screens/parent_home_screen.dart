@@ -58,15 +58,31 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
 
     final sessions = await supabase
         .from('study_sessions')
-        .select('student_id, started_at, subjects(name), topics(name)')
+        .select('id, student_id, started_at, status, subjects(name), topics(name)')
         .inFilter('student_id', ids)
-        .eq('status', 'active');
+        .inFilter('status', ['active', 'paused']);
+
+    final sessionIds = sessions.map((s) => s['id'] as String).toList();
+    List<Map<String, dynamic>> allBreaks = [];
+    
+    if (sessionIds.isNotEmpty) {
+      final breaksData = await supabase
+          .from('study_breaks')
+          .select('session_id, started_at, ended_at')
+          .inFilter('session_id', sessionIds);
+      allBreaks = List<Map<String, dynamic>>.from(breaksData);
+    }
 
     return students.map((student) {
       final session = sessions.cast<Map<String, dynamic>>().firstWhere(
             (s) => s['student_id'] == student['id'],
             orElse: () => <String, dynamic>{},
           );
+
+      if (session.isNotEmpty) {
+        session['breaks'] = allBreaks.where((b) => b['session_id'] == session['id']).toList();
+      }
+
       return {
         'id': student['id'],
         'full_name': student['full_name'],
@@ -209,6 +225,7 @@ class StudentTile extends StatefulWidget {
 class _StudentTileState extends State<StudentTile> {
   Timer? _timer;
   Duration _duration = Duration.zero;
+  String _status = 'active';
 
   @override
   void initState() {
@@ -219,24 +236,51 @@ class _StudentTileState extends State<StudentTile> {
   @override
   void didUpdateWidget(covariant StudentTile oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.student['active_session'] != widget.student['active_session']) {
-      _setupTimer();
-    }
+    _setupTimer();
   }
 
   void _setupTimer() {
     _timer?.cancel();
     final session = widget.student['active_session'];
+    
     if (session != null) {
+      _status = session['status'] as String;
       final startTime = DateTime.parse(session['started_at'] as String).toLocal();
-      _duration = DateTime.now().difference(startTime);
-      _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final breaks = session['breaks'] as List<dynamic>? ?? [];
+
+      Duration calcBreak = Duration.zero;
+      DateTime? pStart;
+
+      for (var b in breaks) {
+        final bStart = DateTime.parse(b['started_at'] as String).toLocal();
+        if (b['ended_at'] != null) {
+          final bEnd = DateTime.parse(b['ended_at'] as String).toLocal();
+          calcBreak += bEnd.difference(bStart);
+        } else {
+          pStart = bStart;
+        }
+      }
+
+      if (_status == 'paused' && pStart != null) {
         if (mounted) {
           setState(() {
-            _duration = DateTime.now().difference(startTime);
+            _duration = pStart!.difference(startTime) - calcBreak;
           });
         }
-      });
+      } else {
+        if (mounted) {
+          setState(() {
+            _duration = DateTime.now().difference(startTime) - calcBreak;
+          });
+        }
+        _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+          if (mounted) {
+            setState(() {
+              _duration = DateTime.now().difference(startTime) - calcBreak;
+            });
+          }
+        });
+      }
     }
   }
 
@@ -247,6 +291,7 @@ class _StudentTileState extends State<StudentTile> {
   }
 
   String _formatDuration(Duration duration) {
+    if (duration.isNegative) duration = Duration.zero;
     String twoDigits(int n) => n.toString().padLeft(2, "0");
     String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
     String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
@@ -275,18 +320,32 @@ class _StudentTileState extends State<StudentTile> {
     final topicName = topicData != null ? topicData['name'] as String : null;
 
     final text = topicName != null ? '$subjectName - $topicName' : subjectName;
+    final isPaused = _status == 'paused';
 
     return ListTile(
-      leading: const CircleAvatar(
-        backgroundColor: Colors.green,
-        child: Icon(Icons.timer, color: Colors.white),
+      leading: CircleAvatar(
+        backgroundColor: isPaused ? Colors.orange : Colors.green,
+        child: Icon(isPaused ? Icons.pause : Icons.timer, color: Colors.white),
       ),
       title: Text(widget.student['full_name'] as String),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Çalışıyor: $text', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-          Text(_formatDuration(_duration), style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+          Text(
+            isPaused ? 'Molada: $text' : 'Çalışıyor: $text',
+            style: TextStyle(
+              color: isPaused ? Colors.orange : Colors.green,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            _formatDuration(_duration),
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.bold,
+              color: isPaused ? Colors.grey : Colors.black,
+            ),
+          ),
         ],
       ),
     );

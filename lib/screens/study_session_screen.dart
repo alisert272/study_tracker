@@ -24,10 +24,14 @@ class _StudySessionScreenState extends State<StudySessionScreen> with WidgetsBin
   final _supabase = Supabase.instance.client;
 
   bool _isLoading = true;
-  bool _isActive = false;
+  String _status = 'initial';
   String? _sessionId;
+  
   DateTime? _startTime;
+  DateTime? _pauseStartTime;
+  Duration _accumulatedBreakDuration = Duration.zero;
   Duration _elapsedDuration = Duration.zero;
+  
   Timer? _timer;
 
   @override
@@ -53,20 +57,49 @@ class _StudySessionScreenState extends State<StudySessionScreen> with WidgetsBin
 
   Future<void> _checkActiveSession() async {
     try {
-      final response = await _supabase
+      final sessionResponse = await _supabase
           .from('study_sessions')
           .select()
           .eq('student_id', _supabase.auth.currentUser!.id)
-          .eq('status', 'active')
+          .inFilter('status', ['active', 'paused'])
           .maybeSingle();
 
-      if (response != null && mounted) {
+      if (sessionResponse != null && mounted) {
+        final sessionId = sessionResponse['id'] as String;
+        final status = sessionResponse['status'] as String;
+        final startTime = DateTime.parse(sessionResponse['started_at'] as String).toLocal();
+
+        final breaksResponse = await _supabase
+            .from('study_breaks')
+            .select()
+            .eq('session_id', sessionId);
+
+        Duration calcBreak = Duration.zero;
+        DateTime? pStart;
+
+        for (var b in breaksResponse) {
+          final bStart = DateTime.parse(b['started_at'] as String).toLocal();
+          if (b['ended_at'] != null) {
+            final bEnd = DateTime.parse(b['ended_at'] as String).toLocal();
+            calcBreak += bEnd.difference(bStart);
+          } else {
+            pStart = bStart;
+          }
+        }
+
         setState(() {
-          _sessionId = response['id'] as String;
-          _isActive = true;
-          _startTime = DateTime.parse(response['started_at'] as String).toLocal();
+          _sessionId = sessionId;
+          _status = status;
+          _startTime = startTime;
+          _accumulatedBreakDuration = calcBreak;
+          _pauseStartTime = pStart;
           _isLoading = false;
+
+          if (_status == 'paused' && _pauseStartTime != null) {
+            _elapsedDuration = _pauseStartTime!.difference(_startTime!) - _accumulatedBreakDuration;
+          }
         });
+
         _startTimerUI();
       } else if (mounted) {
         setState(() {
@@ -83,9 +116,9 @@ class _StudySessionScreenState extends State<StudySessionScreen> with WidgetsBin
   void _startTimerUI() {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_startTime != null && mounted) {
+      if (_startTime != null && _status == 'active' && mounted) {
         setState(() {
-          _elapsedDuration = DateTime.now().difference(_startTime!);
+          _elapsedDuration = DateTime.now().difference(_startTime!) - _accumulatedBreakDuration;
         });
       }
     });
@@ -105,8 +138,10 @@ class _StudySessionScreenState extends State<StudySessionScreen> with WidgetsBin
       if (mounted) {
         setState(() {
           _sessionId = response as String;
-          _isActive = true;
+          _status = 'active';
           _startTime = DateTime.now();
+          _accumulatedBreakDuration = Duration.zero;
+          _pauseStartTime = null;
           _isLoading = false;
         });
         _startTimerUI();
@@ -119,19 +154,56 @@ class _StudySessionScreenState extends State<StudySessionScreen> with WidgetsBin
     }
   }
 
+  Future<void> _pauseSession() async {
+    setState(() => _isLoading = true);
+    try {
+      await _supabase.rpc('pause_study_session', params: {'p_session_id': _sessionId});
+      if (mounted) {
+        setState(() {
+          _status = 'paused';
+          _pauseStartTime = DateTime.now();
+          _elapsedDuration = _pauseStartTime!.difference(_startTime!) - _accumulatedBreakDuration;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+      }
+    }
+  }
+
+  Future<void> _resumeSession() async {
+    setState(() => _isLoading = true);
+    try {
+      await _supabase.rpc('resume_study_session', params: {'p_session_id': _sessionId});
+      if (mounted) {
+        setState(() {
+          _status = 'active';
+          if (_pauseStartTime != null) {
+            _accumulatedBreakDuration += DateTime.now().difference(_pauseStartTime!);
+            _pauseStartTime = null;
+          }
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+      }
+    }
+  }
+
   Future<void> _endSession() async {
     setState(() => _isLoading = true);
     try {
-      await _supabase.rpc(
-        'end_study_session',
-        params: {'p_session_id': _sessionId},
-      );
-
+      await _supabase.rpc('end_study_session', params: {'p_session_id': _sessionId});
       _timer?.cancel();
-
       if (mounted) {
         setState(() {
-          _isActive = false;
+          _status = 'initial';
           _isLoading = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
@@ -148,6 +220,7 @@ class _StudySessionScreenState extends State<StudySessionScreen> with WidgetsBin
   }
 
   String _formatDuration(Duration duration) {
+    if (duration.isNegative) duration = Duration.zero;
     String twoDigits(int n) => n.toString().padLeft(2, "0");
     String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
     String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
@@ -173,15 +246,25 @@ class _StudySessionScreenState extends State<StudySessionScreen> with WidgetsBin
                 style: const TextStyle(fontSize: 18, color: Colors.grey),
               ),
             ],
-            const SizedBox(height: 50),
+            const SizedBox(height: 30),
+            if (_status == 'active')
+              const Text('Çalışılıyor...', style: TextStyle(color: Colors.green, fontSize: 18, fontWeight: FontWeight.bold))
+            else if (_status == 'paused')
+              const Text('Molada', style: TextStyle(color: Colors.orange, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
             Text(
               _formatDuration(_elapsedDuration),
-              style: const TextStyle(fontSize: 64, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+              style: TextStyle(
+                fontSize: 64,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'monospace',
+                color: _status == 'paused' ? Colors.grey : Colors.black,
+              ),
             ),
             const SizedBox(height: 50),
             if (_isLoading)
               const CircularProgressIndicator()
-            else if (!_isActive)
+            else if (_status == 'initial')
               ElevatedButton.icon(
                 onPressed: _startSession,
                 icon: const Icon(Icons.play_arrow),
@@ -192,16 +275,43 @@ class _StudySessionScreenState extends State<StudySessionScreen> with WidgetsBin
                 ),
               )
             else
-              ElevatedButton.icon(
-                onPressed: _endSession,
-                icon: const Icon(Icons.stop),
-                label: const Text('Bitir'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-                  textStyle: const TextStyle(fontSize: 20),
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (_status == 'active')
+                    ElevatedButton.icon(
+                      onPressed: _pauseSession,
+                      icon: const Icon(Icons.pause),
+                      label: const Text('Mola Ver'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                      ),
+                    )
+                  else if (_status == 'paused')
+                    ElevatedButton.icon(
+                      onPressed: _resumeSession,
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Devam Et'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                      ),
+                    ),
+                  const SizedBox(width: 20),
+                  ElevatedButton.icon(
+                    onPressed: _endSession,
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Bitir'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.redAccent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                    ),
+                  ),
+                ],
               ),
           ],
         ),
