@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'auth_gate.dart';
 import 'subjects_screen.dart';
 import 'study_session_screen.dart';
+import 'history_screen.dart';
 
 class StudentHomeScreen extends StatefulWidget {
   final String fullName;
@@ -169,6 +170,17 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
                   },
                   icon: const Icon(Icons.menu_book),
                   label: const Text('Derslerim'),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.history),
+                  label: const Text('Çalışma Geçmişi'),
                 ),
               ],
             ),
