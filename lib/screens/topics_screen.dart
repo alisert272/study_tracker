@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'study_session_screen.dart';
 
 class TopicsScreen extends StatefulWidget {
   final String subjectId;
@@ -112,9 +113,25 @@ class _TopicsScreenState extends State<TopicsScreen> {
           return ListView.builder(
             itemCount: topics.length,
             itemBuilder: (context, index) {
+              final topic = topics[index]; // Konuyu bir değişkene aldık
               return ListTile(
                 leading: const Icon(Icons.topic),
-                title: Text(topics[index]['name'] as String),
+                title: Text(topic['name'] as String),
+                trailing: const Icon(Icons.play_arrow, color: Colors.green), // Şık bir ikon
+                onTap: () {
+                  // Konuya tıklandığında StudySessionScreen'e git
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StudySessionScreen(
+                        subjectId: widget.subjectId,
+                        subjectName: widget.subjectName,
+                        topicId: topic['id'] as String,
+                        topicName: topic['name'] as String,
+                      ),
+                    ),
+                  );
+                },
               );
             },
           );
