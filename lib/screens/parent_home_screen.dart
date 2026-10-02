@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'auth_gate.dart';
+import 'student_history_screen.dart';
 
 class ParentHomeScreen extends StatefulWidget {
   final String fullName;
@@ -301,52 +302,78 @@ class _StudentTileState extends State<StudentTile> {
   @override
   Widget build(BuildContext context) {
     final session = widget.student['active_session'];
+    final studentId = widget.student['id'] as String;
+    final studentName = widget.student['full_name'] as String;
 
-    if (session == null) {
-      return ListTile(
-        leading: const CircleAvatar(
-          backgroundColor: Colors.grey,
-          child: Icon(Icons.person, color: Colors.white),
-        ),
-        title: Text(widget.student['full_name'] as String),
-        subtitle: const Text('Şu an çalışmıyor'),
-      );
-    }
-
-    final subjectData = session['subjects'];
+    final subjectData = session != null ? session['subjects'] : null;
     final subjectName = subjectData != null ? subjectData['name'] as String : 'Bilinmeyen Ders';
 
-    final topicData = session['topics'];
+    final topicData = session != null ? session['topics'] : null;
     final topicName = topicData != null ? topicData['name'] as String : null;
 
-    final text = topicName != null ? '$subjectName - $topicName' : subjectName;
+    final text = session != null ? (topicName != null ? '$subjectName - $topicName' : subjectName) : 'Şu an çalışmıyor';
     final isPaused = _status == 'paused';
 
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: isPaused ? Colors.orange : Colors.green,
-        child: Icon(isPaused ? Icons.pause : Icons.timer, color: Colors.white),
-      ),
-      title: Text(widget.student['full_name'] as String),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            isPaused ? 'Molada: $text' : 'Çalışıyor: $text',
-            style: TextStyle(
-              color: isPaused ? Colors.orange : Colors.green,
-              fontWeight: FontWeight.bold,
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: CircleAvatar(
+                backgroundColor: session == null ? Colors.grey : (isPaused ? Colors.orange : Colors.green),
+                child: Icon(session == null ? Icons.person : (isPaused ? Icons.pause : Icons.timer), color: Colors.white),
+              ),
+              title: Text(studentName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              subtitle: session == null
+                  ? const Text('Şu an çalışmıyor')
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 4),
+                        Text(
+                          isPaused ? 'Molada: $text' : 'Çalışıyor: $text',
+                          style: TextStyle(
+                            color: isPaused ? Colors.orange : Colors.green,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          _formatDuration(_duration),
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.bold,
+                            color: isPaused ? Colors.grey : Colors.black,
+                          ),
+                        ),
+                      ],
+                    ),
             ),
-          ),
-          Text(
-            _formatDuration(_duration),
-            style: TextStyle(
-              fontFamily: 'monospace',
-              fontWeight: FontWeight.bold,
-              color: isPaused ? Colors.grey : Colors.black,
+            const Divider(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => StudentHistoryScreen(
+                          studentId: studentId,
+                          studentName: studentName,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.history, size: 18),
+                  label: const Text('Çalışma Geçmişini Gör'),
+                ),
+              ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
