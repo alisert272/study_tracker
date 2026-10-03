@@ -52,9 +52,10 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     final ids = links.map((l) => l['student_id'] as String).toList();
     if (ids.isEmpty) return [];
 
+    // ÖNEMLİ GÜNCELLEME: Öğrencinin haftalık hedefini (weekly_goal_seconds) de çekiyoruz.
     final students = await supabase
         .from('profiles')
-        .select('id, full_name')
+        .select('id, full_name, weekly_goal_seconds')
         .inFilter('id', ids);
 
     final sessions = await supabase
@@ -87,6 +88,7 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
       return {
         'id': student['id'],
         'full_name': student['full_name'],
+        'weekly_goal_seconds': student['weekly_goal_seconds'], // Hedef bilgisi eklendi
         'active_session': session.isEmpty ? null : session,
       };
     }).toList();
@@ -205,7 +207,10 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
           return ListView.builder(
             itemCount: students.length,
             itemBuilder: (context, index) {
-              return StudentTile(student: students[index]);
+              return StudentTile(
+                student: students[index],
+                onRefresh: _refresh, 
+              );
             },
           );
         },
@@ -216,8 +221,9 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
 
 class StudentTile extends StatefulWidget {
   final Map<String, dynamic> student;
+  final VoidCallback onRefresh;
 
-  const StudentTile({Key? key, required this.student}) : super(key: key);
+  const StudentTile({Key? key, required this.student, required this.onRefresh}) : super(key: key);
 
   @override
   State<StudentTile> createState() => _StudentTileState();
@@ -299,6 +305,83 @@ class _StudentTileState extends State<StudentTile> {
     return "${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds";
   }
 
+  // YENİ: Ebeveynin hedef belirleyeceği iletişim kutusunu (Slider) açan metod (Maks 100 saat)
+  Future<void> _setWeeklyGoal() async {
+    final studentId = widget.student['id'] as String;
+    
+    final currentGoalSeconds = widget.student['weekly_goal_seconds'] as int? ?? 36000;
+    
+    double currentGoalHours = (currentGoalSeconds / 3600).clamp(1.0, 100.0);
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('${widget.student['full_name']} İçin Hedef'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Haftalık Hedef: ${currentGoalHours.toInt()} Saat',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 16),
+                  Slider(
+                    value: currentGoalHours,
+                    min: 1,
+                    max: 100,
+                    divisions: 99,
+                    label: '${currentGoalHours.toInt()} Saat',
+                    activeColor: Theme.of(context).colorScheme.primary,
+                    onChanged: (val) {
+                      setDialogState(() {
+                        currentGoalHours = val;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('İptal'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    try {
+                      final newGoalSeconds = (currentGoalHours * 3600).toInt();
+                      await Supabase.instance.client
+                          .from('profiles')
+                          .update({'weekly_goal_seconds': newGoalSeconds})
+                          .eq('id', studentId);
+
+                      if (!mounted) return;
+                      Navigator.pop(context); 
+                      
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Haftalık hedef başarıyla güncellendi!')),
+                      );
+                      
+                      widget.onRefresh(); 
+                    } catch (e) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Hata: $e')),
+                      );
+                    }
+                  },
+                  child: const Text('Kaydet'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = widget.student['active_session'];
@@ -352,9 +435,15 @@ class _StudentTileState extends State<StudentTile> {
                     ),
             ),
             const Divider(),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
               children: [
+                TextButton.icon(
+                  onPressed: _setWeeklyGoal,
+                  icon: const Icon(Icons.flag, size: 18, color: Colors.deepOrange),
+                  label: const Text('Hedef Belirle', style: TextStyle(color: Colors.deepOrange)),
+                ),
                 TextButton.icon(
                   onPressed: () {
                     Navigator.push(
@@ -368,7 +457,7 @@ class _StudentTileState extends State<StudentTile> {
                     );
                   },
                   icon: const Icon(Icons.history, size: 18),
-                  label: const Text('Çalışma Geçmişini Gör'),
+                  label: const Text('Geçmişi Gör'),
                 ),
               ],
             ),
